@@ -1,67 +1,69 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+const { Pool } = require('pg');
+require('dotenv').config();
 
-const db = new Database(path.join(__dirname, '../../oquv_markaz.db'));
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    role TEXT DEFAULT 'teacher',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
+const initDB = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      email VARCHAR(100) UNIQUE NOT NULL,
+      password VARCHAR(255) NOT NULL,
+      role VARCHAR(20) DEFAULT 'teacher',
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS courses (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      duration_months INTEGER DEFAULT 6,
+      price INTEGER NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS students (
+      id SERIAL PRIMARY KEY,
+      firstname VARCHAR(100) NOT NULL,
+      lastname VARCHAR(100) NOT NULL,
+      phone VARCHAR(20) NOT NULL,
+      course_id INTEGER REFERENCES courses(id),
+      monthly_fee INTEGER NOT NULL,
+      start_date TEXT NOT NULL,
+      status VARCHAR(20) DEFAULT 'active',
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS payments (
+      id SERIAL PRIMARY KEY,
+      student_id INTEGER REFERENCES students(id) ON DELETE CASCADE,
+      amount INTEGER NOT NULL,
+      month VARCHAR(20) NOT NULL,
+      year INTEGER DEFAULT EXTRACT(YEAR FROM NOW()),
+      payment_date TEXT,
+      status VARCHAR(20) DEFAULT 'paid',
+      note TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
 
-  CREATE TABLE IF NOT EXISTS courses (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    duration_months INTEGER DEFAULT 6,
-    price INTEGER NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
+  const adminRes = await pool.query("SELECT id FROM users WHERE email='admin@oquv.uz'");
+  if (adminRes.rows.length === 0) {
+    await pool.query(
+      "INSERT INTO users (name, email, password, role) VALUES ($1,$2,$3,$4)",
+      ['Admin', 'admin@oquv.uz', '$2b$10$jGndR3pcoxGu9zFrA6ImaOhlTvnxaZp5XdZkSlghbU9ji/oOuRmGi', 'admin']
+    );
+  }
 
-  CREATE TABLE IF NOT EXISTS students (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    firstname TEXT NOT NULL,
-    lastname TEXT NOT NULL,
-    phone TEXT NOT NULL,
-    course_id INTEGER REFERENCES courses(id),
-    monthly_fee INTEGER NOT NULL,
-    start_date TEXT NOT NULL,
-    status TEXT DEFAULT 'active',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
+  const courseRes = await pool.query("SELECT id FROM courses LIMIT 1");
+  if (courseRes.rows.length === 0) {
+    await pool.query("INSERT INTO courses (name, duration_months, price) VALUES ($1,$2,$3)", ['Python', 6, 500000]);
+    await pool.query("INSERT INTO courses (name, duration_months, price) VALUES ($1,$2,$3)", ['Web (Frontend)', 8, 600000]);
+    await pool.query("INSERT INTO courses (name, duration_months, price) VALUES ($1,$2,$3)", ['Flutter', 7, 550000]);
+    await pool.query("INSERT INTO courses (name, duration_months, price) VALUES ($1,$2,$3)", ['Backend (Node.js)', 8, 650000]);
+  }
 
-  CREATE TABLE IF NOT EXISTS payments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    student_id INTEGER REFERENCES students(id) ON DELETE CASCADE,
-    amount INTEGER NOT NULL,
-    month TEXT NOT NULL,
-    year INTEGER DEFAULT (strftime('%Y', 'now')),
-    payment_date TEXT,
-    status TEXT DEFAULT 'paid',
-    note TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
+  console.log('✅ PostgreSQL bazaga ulandi');
+};
 
-// Default admin (parol: admin123)
-const adminExists = db.prepare('SELECT id FROM users WHERE email = ?').get('admin@oquv.uz');
-if (!adminExists) {
-  db.prepare(`INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)`)
-    .run('Admin', 'admin@oquv.uz', '$2b$10$jGndR3pcoxGu9zFrA6ImaOhlTvnxaZp5XdZkSlghbU9ji/oOuRmGi', 'admin');
-}
-
-// Default kurslar
-const courseExists = db.prepare('SELECT id FROM courses LIMIT 1').get();
-if (!courseExists) {
-  const ins = db.prepare('INSERT INTO courses (name, duration_months, price) VALUES (?, ?, ?)');
-  ins.run('Python', 6, 500000);
-  ins.run('Web (Frontend)', 8, 600000);
-  ins.run('Flutter', 7, 550000);
-  ins.run('Backend (Node.js)', 8, 650000);
-}
-
-console.log('✅ SQLite bazaga ulandi');
-module.exports = db;
+module.exports = { pool, initDB };

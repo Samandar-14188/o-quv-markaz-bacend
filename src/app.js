@@ -3,7 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 const { initDB } = require('./config/db');
-
+require('./cron');
 const app = express();
 
 app.use(cors({ origin: '*', credentials: false }));
